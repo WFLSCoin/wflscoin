@@ -1,0 +1,93 @@
+#!/sbin/openrc-run
+
+# backward compatibility for existing gentoo layout 
+#
+if [ -d "/var/lib/wflscoin/.wflscoin" ]; then
+	WFLSCOIND_DEFAULT_DATADIR="/var/lib/wflscoin/.wflscoin"
+else
+	WFLSCOIND_DEFAULT_DATADIR="/var/lib/wflscoind"
+fi
+
+WFLSCOIND_CONFIGFILE=${WFLSCOIND_CONFIGFILE:-/etc/wflscoin/wflscoin.conf}
+WFLSCOIND_PIDDIR=${WFLSCOIND_PIDDIR:-/var/run/wflscoind}
+WFLSCOIND_PIDFILE=${WFLSCOIND_PIDFILE:-${WFLSCOIND_PIDDIR}/wflscoind.pid}
+WFLSCOIND_DATADIR=${WFLSCOIND_DATADIR:-${WFLSCOIND_DEFAULT_DATADIR}}
+WFLSCOIND_USER=${WFLSCOIND_USER:-${WFLSCOIN_USER:-wflscoin}}
+WFLSCOIND_GROUP=${WFLSCOIND_GROUP:-wflscoin}
+WFLSCOIND_BIN=${WFLSCOIND_BIN:-/usr/bin/wflscoind}
+WFLSCOIND_NICE=${WFLSCOIND_NICE:-${NICELEVEL:-0}}
+WFLSCOIND_OPTS="${WFLSCOIND_OPTS:-${WFLSCOIN_OPTS}}"
+
+name="Wflscoin Core Daemon"
+description="Wflscoin cryptocurrency P2P network daemon"
+
+command="/usr/bin/wflscoind"
+command_args="-pid=\"${WFLSCOIND_PIDFILE}\" \
+		-conf=\"${WFLSCOIND_CONFIGFILE}\" \
+		-datadir=\"${WFLSCOIND_DATADIR}\" \
+		-daemon \
+		${WFLSCOIND_OPTS}"
+
+required_files="${WFLSCOIND_CONFIGFILE}"
+start_stop_daemon_args="-u ${WFLSCOIND_USER} \
+			-N ${WFLSCOIND_NICE} -w 2000"
+pidfile="${WFLSCOIND_PIDFILE}"
+
+# The retry schedule to use when stopping the daemon. Could be either
+# a timeout in seconds or multiple signal/timeout pairs (like
+# "SIGKILL/180 SIGTERM/300")
+retry="${WFLSCOIND_SIGTERM_TIMEOUT}"
+
+depend() {
+	need localmount net
+}
+
+# verify
+# 1) that the datadir exists and is writable (or create it)
+# 2) that a directory for the pid exists and is writable
+# 3) ownership and permissions on the config file
+start_pre() {
+	checkpath \
+	-d \
+	--mode 0750 \
+	--owner "${WFLSCOIND_USER}:${WFLSCOIND_GROUP}" \
+	"${WFLSCOIND_DATADIR}"
+
+	checkpath \
+	-d \
+	--mode 0755 \
+	--owner "${WFLSCOIND_USER}:${WFLSCOIND_GROUP}" \
+	"${WFLSCOIND_PIDDIR}"
+
+	checkpath -f \
+	-o "${WFLSCOIND_USER}:${WFLSCOIND_GROUP}" \
+	-m 0660 \
+	"${WFLSCOIND_CONFIGFILE}"
+
+	checkconfig || return 1
+}
+
+checkconfig()
+{
+	if grep -qs '^rpcuser=' "${WFLSCOIND_CONFIGFILE}" && \
+		! grep -qs '^rpcpassword=' "${WFLSCOIND_CONFIGFILE}" ; then
+		eerror ""
+		eerror "ERROR: You must set a secure rpcpassword to run wflscoind."
+		eerror "The setting must appear in ${WFLSCOIND_CONFIGFILE}"
+		eerror ""
+		eerror "This password is security critical to securing wallets "
+		eerror "and must not be the same as the rpcuser setting."
+		eerror "You can generate a suitable random password using the following "
+		eerror "command from the shell:"
+		eerror ""
+		eerror "bash -c 'tr -dc a-zA-Z0-9 < /dev/urandom | head -c32 && echo'"
+		eerror ""
+		eerror "It is recommended that you also set alertnotify so you are "
+		eerror "notified of problems:"
+		eerror ""
+		eerror "ie: alertnotify=echo %%s | mail -s \"Wflscoin Alert\"" \
+			"admin@foo.com"
+		eerror ""
+		return 1
+	fi
+}
